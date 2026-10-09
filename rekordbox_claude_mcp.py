@@ -515,6 +515,7 @@ def apply(db: Rekordbox6Database, kind: str, p: dict, xml_ops: list) -> str:
         return f"Removed {len(rows)} tracks from '{pl.Name}'"
     if kind == "edit_playlist":
         pl = resolve_playlist(db, p["playlist"])
+        old_name = pl.Name
         msgs = []
         if p.get("new_name"):
             db.rename_playlist(pl, p["new_name"])
@@ -525,7 +526,7 @@ def apply(db: Rekordbox6Database, kind: str, p: dict, xml_ops: list) -> str:
             xml_ops.append(("move", pl.ID, parent_id))
             msgs.append("moved")
         xml_ops.append(("touch", pl.ID))
-        return f"'{pl.Name}': " + ", ".join(msgs)
+        return f"'{old_name}': " + ", ".join(msgs)
     if kind == "create_mytag":
         col = resolve_column(db, p["column"])
         seq = live(db.session.query(T), T).filter(T.ParentID == col.ID).count() + 1
