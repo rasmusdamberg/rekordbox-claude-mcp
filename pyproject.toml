@@ -1,0 +1,28 @@
+[project]
+name = "rekordbox-claude-mcp"
+version = "0.1.0"
+description = "MCP server for Rekordbox 6/7: playlists, smart playlists and MyTags, with preview, backup and approval"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Rasmus Damberg" }]
+requires-python = ">=3.10"
+keywords = ["rekordbox", "mcp", "dj", "claude", "mytag", "smart-playlist"]
+dependencies = [
+    "mcp>=1.10,<2",
+    "pyrekordbox==0.4.4",
+    "sqlcipher3-wheels>=0.5",
+]
+
+[project.scripts]
+rekordbox-claude-mcp = "rekordbox_claude_mcp:main"
+
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+include = ["rekordbox_claude_mcp.py"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
