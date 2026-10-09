@@ -77,6 +77,13 @@ def open_db() -> Iterator[Rekordbox6Database]:
             db.close()
         except Exception:
             pass
+        try:
+            # Release the file handles. A pooled connection kept open across calls
+            # breaks the next open after Rekordbox rewrites master.db and removes
+            # its -shm file ("disk I/O error").
+            db.engine.dispose()
+        except Exception:
+            pass
 
 
 def rekordbox_running() -> bool:
