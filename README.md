@@ -38,7 +38,7 @@ Built by a working DJ to organise a library of mostly streamed tracks (Tidal) wi
 
 Playlists are referenced by id, full path (`01 - TOOLBOX/04 - PEAK`) or a unique name. MyTags as `Column/Tag` (`Energy/Peak`). Tracks by Rekordbox id or, for streamed tracks, Tidal id.
 
-Smart playlist fields: `mytag`, `bpm`, `genre`, `artist`, `title`, `year`, `date_added` (e.g. `in_last` 30 days). **`mytag` and `bpm` are verified** against smart playlists created by Rekordbox 7 itself; the others use the same format but check the result in Rekordbox the first time you use them.
+Smart playlist fields: `mytag`, `bpm`, `genre`, `artist`, `title`, `year`, `date_added` (`in_last` / `not_in_last` N days or months). **`mytag`, `bpm` and `date_added` are verified** against smart playlists created by Rekordbox 7 itself; the others use the same format but check the result in Rekordbox the first time you use them.
 
 ## Requirements
 

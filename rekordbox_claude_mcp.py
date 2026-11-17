@@ -277,28 +277,27 @@ SmartOp = Literal["contains", "not_contains", "equal", "not_equal", "greater", "
 
 OP_CODES = {"equal": 1, "not_equal": 2, "greater": 3, "less": 4, "in_range": 5, "in_last": 6, "not_in_last": 7, "contains": 8,
             "not_contains": 9, "starts_with": 10, "ends_with": 11}
-# date_added: pyrekordbox names Rekordbox' "Date Added" property dateCreated. Not yet checked against XML
-# written by Rekordbox itself, so it stays out of VERIFIED_FIELDS until it is.
+# date_added = Rekordbox' "Date Added" (StockDate). Verified 17/11-2026 against a smart playlist made in
+# Rekordbox 7: PropertyName="stockDate" Operator="6" ValueUnit="day" ValueLeft="30".
 XML_PROP = {"mytag": "myTag", "bpm": "bpm", "genre": "genre", "artist": "artist", "title": "name", "year": "year",
-            "date_added": "dateCreated"}
+            "date_added": "stockDate"}
 VALID_OPS = {
     "mytag": {"contains", "not_contains"},
     "bpm": {"equal", "not_equal", "greater", "less", "in_range"},
     "year": {"equal", "not_equal", "greater", "less", "in_range"},
-    "date_added": {"in_last", "not_in_last", "greater", "less", "in_range"},
+    "date_added": {"in_last", "not_in_last"},
     "genre": {"equal", "not_equal", "contains", "not_contains", "starts_with", "ends_with"},
     "artist": {"equal", "not_equal", "contains", "not_contains", "starts_with", "ends_with"},
     "title": {"equal", "not_equal", "contains", "not_contains", "starts_with", "ends_with"},
 }
 # Verified against a smart playlist created by Rekordbox 7 itself.
-VERIFIED_FIELDS = {"mytag", "bpm"}
+VERIFIED_FIELDS = {"mytag", "bpm", "date_added"}
 
 
 class SmartCondition(BaseModel):
     field: SmartField = Field(description="mytag, bpm, genre, artist, title or year")
     op: SmartOp = Field(description="mytag: contains/not_contains. bpm/year: equal, greater, less, in_range. "
-                                    "date_added: in_last/not_in_last (value = number, unit = day or month) or "
-                                    "greater/less/in_range with YYYY-MM-DD. Text fields: contains, equal, starts_with ...")
+                                    "date_added: in_last/not_in_last (value = number, unit = day or month). Text fields: contains, equal, starts_with ...")
     value: str = Field(description="Value. For mytag: 'Column/Tag' (e.g. 'Energy/Peak'). For bpm: e.g. '120'. "
                                    "For date_added in_last: e.g. '30'.")
     value2: Optional[str] = Field(default=None, description="Upper bound for in_range")
@@ -326,10 +325,6 @@ def build_conditions(db: Rekordbox6Database, conds: list[SmartCondition]) -> lis
                 left = str(int(c.value))
                 unit = c.unit or "day"
                 label = f"{left} {unit}s"
-            else:
-                for v in (c.value, c.value2):
-                    if v:
-                        _dt.date.fromisoformat(v)
         out.append({"field": c.field, "op": c.op, "left": left, "right": right, "unit": unit,
                     "label": f"{c.field} {c.op} {label}" + (f"..{c.value2}" if c.value2 else "")})
     return out
@@ -373,9 +368,6 @@ def smart_match_count(db: Rekordbox6Database, conds: list[dict], match: str) -> 
                 else:
                     since = today - _dt.timedelta(days=n)
                 clauses.append(col > since.isoformat() if op == "in_last" else col <= since.isoformat())
-            else:
-                clauses.append({"greater": col > left, "less": col < left,
-                                "in_range": and_(col >= left, col <= (right or left))}[op])
             continue
         col = {"bpm": C.BPM, "year": C.ReleaseYear}.get(f)
         if col is not None:
@@ -828,7 +820,7 @@ def rb_preview_create_playlist(name: str, parent: Optional[str] = None, track_id
 def rb_preview_create_smart_playlist(name: str, conditions: list[SmartCondition], match: Literal["all", "any"] = "all",
                                      parent: Optional[str] = None) -> dict:
     """Preview: create a smart playlist. match='all' (every condition) or 'any' (at least one).
-    Fields: mytag ('Column/Tag'), bpm, genre, artist, title, year. mytag and bpm are verified against Rekordbox 7."""
+    Fields: mytag ('Column/Tag'), bpm, genre, artist, title, year, date_added. mytag, bpm and date_added are verified against Rekordbox 7."""
     with open_db() as db:
         resolve_parent(db, parent)
         built = build_conditions(db, conditions)

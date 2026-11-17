@@ -100,7 +100,8 @@ def test_date_added_in_last_condition(mod):
     conds = mod.build_conditions(None, [mod.SmartCondition(field="date_added", op="in_last", value="30")])
     assert conds[0]["unit"] == "day" and conds[0]["left"] == "30"
     xml = mod.smart_xml("76868619", conds, "all")
-    assert 'PropertyName="dateCreated" Operator="6" ValueUnit="day" ValueLeft="30"' in xml
+    # Exact condition Rekordbox 7 wrote for "Date Added in the last 30 days".
+    assert '<CONDITION PropertyName="stockDate" Operator="6" ValueUnit="day" ValueLeft="30" ValueRight=""/>' in xml
 
 
 def test_date_added_rejects_text_ops(mod):
