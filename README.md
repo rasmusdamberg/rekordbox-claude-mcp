@@ -33,11 +33,12 @@ Built by a working DJ to organise a library of mostly streamed tracks (Tidal) wi
 | `rb_search_tracks` (text, BPM, key, MyTag, genre, source, untagged) | `rb_preview_add_tracks` / `rb_preview_remove_tracks` | |
 | `rb_tracks_by_tidal_ids` | `rb_preview_edit_playlist` (rename/move) | |
 | `rb_list_mytags` | `rb_preview_create_mytag` / `rb_preview_rename_mytag` | |
-| | `rb_preview_tag_tracks` / `rb_preview_untag_tracks` | |
+| `rb_tags_export` (Tidal ids per MyTag, for syncing Tidal playlists) | `rb_preview_tag_tracks` / `rb_preview_untag_tracks` | |
+| | `rb_preview_replace_tracks` (swap versions: tags and playlist places move to the new one) | |
 
 Playlists are referenced by id, full path (`01 - TOOLBOX/04 - PEAK`) or a unique name. MyTags as `Column/Tag` (`Energy/Peak`). Tracks by Rekordbox id or, for streamed tracks, Tidal id.
 
-Smart playlist fields: `mytag`, `bpm`, `genre`, `artist`, `title`, `year`. **`mytag` and `bpm` are verified** against smart playlists created by Rekordbox 7 itself; the others use the same format but check the result in Rekordbox the first time you use them.
+Smart playlist fields: `mytag`, `bpm`, `genre`, `artist`, `title`, `year`, `date_added` (e.g. `in_last` 30 days). **`mytag` and `bpm` are verified** against smart playlists created by Rekordbox 7 itself; the others use the same format but check the result in Rekordbox the first time you use them.
 
 ## Requirements
 

@@ -94,3 +94,15 @@ def test_roundtrip_on_copy(tmp_path, monkeypatch):
     assert m.rb_commit([a3["action_id"], a4["action_id"], a5["action_id"]])["ok"]
     assert m.rb_get_playlist_tracks("ZZ TEST/ZZ List")["count"] == len(tracks)
     assert m.rb_search_tracks(mytag=f"{col}/ZZ Tag")["total"] == len(tracks)
+
+
+def test_date_added_in_last_condition(mod):
+    conds = mod.build_conditions(None, [mod.SmartCondition(field="date_added", op="in_last", value="30")])
+    assert conds[0]["unit"] == "day" and conds[0]["left"] == "30"
+    xml = mod.smart_xml("76868619", conds, "all")
+    assert 'PropertyName="dateCreated" Operator="6" ValueUnit="day" ValueLeft="30"' in xml
+
+
+def test_date_added_rejects_text_ops(mod):
+    with pytest.raises(ValueError):
+        mod.build_conditions(None, [mod.SmartCondition(field="date_added", op="contains", value="2026")])

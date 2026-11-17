@@ -32,9 +32,6 @@ from typing import Any, Iterator, Literal, Optional
 
 from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
-
-# Reads and previews never touch the Rekordbox library; only rb_commit writes.
-READ_ONLY = ToolAnnotations(readOnlyHint=True)
 from pyrekordbox import Rekordbox6Database
 from pyrekordbox.db6 import tables
 from pyrekordbox.utils import get_rekordbox_pid
@@ -42,6 +39,9 @@ from pydantic import BaseModel, Field
 from sqlalchemy import and_, func, or_, text
 
 logging.getLogger("pyrekordbox").setLevel(logging.ERROR)
+
+# Reads and previews never touch the Rekordbox library; only rb_commit writes.
+READ_ONLY = ToolAnnotations(readOnlyHint=True)
 
 
 def _default_db_dir() -> str:
@@ -271,16 +271,21 @@ def tags_for(db: Rekordbox6Database, content_ids: list[str]) -> dict[str, list[s
 
 # --------------------------------------------------------------------------- smart lists
 
-SmartField = Literal["mytag", "bpm", "genre", "artist", "title", "year"]
-SmartOp = Literal["contains", "not_contains", "equal", "not_equal", "greater", "less", "in_range", "starts_with", "ends_with"]
+SmartField = Literal["mytag", "bpm", "genre", "artist", "title", "year", "date_added"]
+SmartOp = Literal["contains", "not_contains", "equal", "not_equal", "greater", "less", "in_range", "in_last",
+                  "not_in_last", "starts_with", "ends_with"]
 
-OP_CODES = {"equal": 1, "not_equal": 2, "greater": 3, "less": 4, "in_range": 5, "contains": 8,
+OP_CODES = {"equal": 1, "not_equal": 2, "greater": 3, "less": 4, "in_range": 5, "in_last": 6, "not_in_last": 7, "contains": 8,
             "not_contains": 9, "starts_with": 10, "ends_with": 11}
-XML_PROP = {"mytag": "myTag", "bpm": "bpm", "genre": "genre", "artist": "artist", "title": "name", "year": "year"}
+# date_added: pyrekordbox names Rekordbox' "Date Added" property dateCreated. Not yet checked against XML
+# written by Rekordbox itself, so it stays out of VERIFIED_FIELDS until it is.
+XML_PROP = {"mytag": "myTag", "bpm": "bpm", "genre": "genre", "artist": "artist", "title": "name", "year": "year",
+            "date_added": "dateCreated"}
 VALID_OPS = {
     "mytag": {"contains", "not_contains"},
     "bpm": {"equal", "not_equal", "greater", "less", "in_range"},
     "year": {"equal", "not_equal", "greater", "less", "in_range"},
+    "date_added": {"in_last", "not_in_last", "greater", "less", "in_range"},
     "genre": {"equal", "not_equal", "contains", "not_contains", "starts_with", "ends_with"},
     "artist": {"equal", "not_equal", "contains", "not_contains", "starts_with", "ends_with"},
     "title": {"equal", "not_equal", "contains", "not_contains", "starts_with", "ends_with"},
@@ -291,9 +296,13 @@ VERIFIED_FIELDS = {"mytag", "bpm"}
 
 class SmartCondition(BaseModel):
     field: SmartField = Field(description="mytag, bpm, genre, artist, title or year")
-    op: SmartOp = Field(description="mytag: contains/not_contains. bpm/year: equal, greater, less, in_range. Text fields: contains, equal, starts_with ...")
-    value: str = Field(description="Value. For mytag: 'Column/Tag' (e.g. 'Energy/Peak'). For bpm: e.g. '120'.")
+    op: SmartOp = Field(description="mytag: contains/not_contains. bpm/year: equal, greater, less, in_range. "
+                                    "date_added: in_last/not_in_last (value = number, unit = day or month) or "
+                                    "greater/less/in_range with YYYY-MM-DD. Text fields: contains, equal, starts_with ...")
+    value: str = Field(description="Value. For mytag: 'Column/Tag' (e.g. 'Energy/Peak'). For bpm: e.g. '120'. "
+                                   "For date_added in_last: e.g. '30'.")
     value2: Optional[str] = Field(default=None, description="Upper bound for in_range")
+    unit: Optional[Literal["day", "month"]] = Field(default=None, description="date_added in_last/not_in_last only (default day)")
 
 
 def build_conditions(db: Rekordbox6Database, conds: list[SmartCondition]) -> list[dict]:
@@ -312,6 +321,15 @@ def build_conditions(db: Rekordbox6Database, conds: list[SmartCondition]) -> lis
             left = str(int(round(float(c.value) * 100)))
             right = str(int(round(float(c.value2) * 100))) if c.value2 else ""
             unit = "0"
+        elif c.field == "date_added":
+            if c.op in ("in_last", "not_in_last"):
+                left = str(int(c.value))
+                unit = c.unit or "day"
+                label = f"{left} {unit}s"
+            else:
+                for v in (c.value, c.value2):
+                    if v:
+                        _dt.date.fromisoformat(v)
         out.append({"field": c.field, "op": c.op, "left": left, "right": right, "unit": unit,
                     "label": f"{c.field} {c.op} {label}" + (f"..{c.value2}" if c.value2 else "")})
     return out
@@ -343,6 +361,21 @@ def smart_match_count(db: Rekordbox6Database, conds: list[dict], match: str) -> 
         if f == "mytag":
             sub = live(db.session.query(S.ContentID), S).filter(S.MyTagID == left)
             clauses.append(C.ID.in_(sub) if op == "contains" else ~C.ID.in_(sub))
+            continue
+        if f == "date_added":
+            col = C.StockDate
+            if op in ("in_last", "not_in_last"):
+                n = int(left)
+                today = _dt.date.today()
+                if c["unit"] == "month":
+                    y, m = divmod(today.month - 1 - n, 12)
+                    since = _dt.date(today.year + y, m + 1, min(today.day, 28))
+                else:
+                    since = today - _dt.timedelta(days=n)
+                clauses.append(col > since.isoformat() if op == "in_last" else col <= since.isoformat())
+            else:
+                clauses.append({"greater": col > left, "less": col < left,
+                                "in_range": and_(col >= left, col <= (right or left))}[op])
             continue
         col = {"bpm": C.BPM, "year": C.ReleaseYear}.get(f)
         if col is not None:
@@ -558,6 +591,32 @@ def apply(db: Rekordbox6Database, kind: str, p: dict, xml_ops: list) -> str:
                 n += 1
         verb = "Tagged" if kind == "tag_tracks" else "Untagged"
         return f"{verb} {n} tracks with {tag_label(db, tag)}"
+    if kind == "replace_tracks":
+        by_id = {pl.ID: pl for pl in playlists(db)}
+        moved_tags = moved_places = 0
+        for pair in p["pairs"]:
+            old, new = pair["old"], pair["new"]
+            have = {r.MyTagID for r in live(db.session.query(S), S).filter(S.ContentID == new)}
+            for r in live(db.session.query(S), S).filter(S.ContentID == old).all():
+                if r.MyTagID not in have:
+                    db.add(S(ID=new_uuid(), MyTagID=r.MyTagID, ContentID=new, TrackNo=None, UUID=new_uuid(),
+                             created_at=now, updated_at=now))
+                    have.add(r.MyTagID)
+                    moved_tags += 1
+                if not p.get("keep_old_tags"):
+                    db.delete(r)
+            for row in live(db.session.query(SP), SP).filter(SP.ContentID == old).all():
+                pl = by_id.get(row.PlaylistID)
+                if pl is None or pl.Attribute != 0:
+                    continue
+                in_pl = live(db.session.query(SP), SP).filter(SP.PlaylistID == pl.ID, SP.ContentID == new).count()
+                if not in_pl:
+                    db.add_to_playlist(pl, new, track_no=row.TrackNo)
+                    db.session.flush()
+                db.remove_from_playlist(pl, row)
+                xml_ops.append(("touch", pl.ID))
+                moved_places += 1
+        return f"Replaced {len(p['pairs'])} tracks ({moved_tags} tags and {moved_places} playlist places moved)"
     raise ValueError(f"Unknown action {kind}")
 
 
@@ -703,6 +762,49 @@ def rb_list_mytags() -> dict:
 
 
 @mcp.tool(annotations=READ_ONLY)
+def rb_tags_export(tags: Optional[list[str]] = None, column: Optional[str] = None,
+                   all_of: Optional[list[str]] = None) -> dict:
+    """Compact export: Tidal ids per MyTag, for syncing Tidal playlists with Rekordbox.
+    tags: 'Column/Tag' list. column: every tag in that column (e.g. 'Genre'). Neither: every tag.
+    all_of: also return the tracks that have ALL of these tags (e.g. ['Genre/Chill', 'Genre/Deep House']).
+    Tracks without a Tidal id (local files, Spotify ...) are only counted."""
+    S, T = tables.DjmdSongMyTag, tables.DjmdMyTag
+    with open_db() as db:
+        if tags:
+            wanted = [resolve_tag(db, t) for t in tags]
+        else:
+            col_ids = {resolve_column(db, column).ID} if column else {c.ID for c in mytag_columns(db)}
+            wanted = live(db.session.query(T), T).filter(T.ParentID.in_(col_ids)).order_by(T.ParentID, T.Seq).all()
+
+        def members(tag_id: str) -> tuple[list[str], int]:
+            rows = (live(db.session.query(tables.DjmdContent.FolderPath).join(S, S.ContentID == tables.DjmdContent.ID), S)
+                    .filter(S.MyTagID == tag_id).order_by(S.created_at).all())
+            ids, other = [], 0
+            for (path,) in rows:
+                if path and path.startswith("tidal:tracks:"):
+                    t = path.split(":")[-1]
+                    if t not in ids:
+                        ids.append(t)
+                else:
+                    other += 1
+            return ids, other
+
+        out: dict = {"tags": {}}
+        for t in wanted:
+            ids, other = members(t.ID)
+            entry: dict = {"count": len(ids), "tidal_ids": ids}
+            if other:
+                entry["non_tidal"] = other
+            out["tags"][tag_label(db, t)] = entry
+        if all_of:
+            sets = [members(resolve_tag(db, t).ID)[0] for t in all_of]
+            keep = set.intersection(*(set(x) for x in sets[1:])) if len(sets) > 1 else set(sets[0])
+            ids = [t for t in sets[0] if t in keep]
+            out["all_of"] = {"tags": all_of, "count": len(ids), "tidal_ids": ids}
+    return out
+
+
+@mcp.tool(annotations=READ_ONLY)
 def rb_preview_create_folder(name: str, parent: Optional[str] = None) -> dict:
     """Preview: create a playlist folder (parent = folder path/id, empty = top level)."""
     with open_db() as db:
@@ -820,6 +922,51 @@ def rb_preview_untag_tracks(tag: str, track_ids: Optional[list[str]] = None, tid
         label = tag_label(db, t)
     return stage("untag_tracks", f"Remove {label} from up to {len(tracks)} tracks",
                  {"tag": t.ID, "content_ids": [x.ID for x in tracks]}, {"missing": missing} if missing else None)
+
+
+class Replacement(BaseModel):
+    old_track_id: str = Field(description="Rekordbox id of the version to replace")
+    new_track_id: Optional[str] = Field(default=None, description="Rekordbox id of the new version")
+    new_tidal_id: Optional[str] = Field(default=None, description="...or its Tidal id (must be in the Collection)")
+
+
+@mcp.tool(annotations=READ_ONLY)
+def rb_preview_replace_tracks(replacements: list[Replacement], keep_old_tags: bool = False) -> dict:
+    """Preview: swap one version of a track for another (e.g. radio edit -> extended mix).
+    The new version gets every MyTag of the old one and takes its place in every regular playlist
+    (same position). The old version loses its MyTags (unless keep_old_tags) and is removed from those
+    playlists, but stays in the Collection. Smart playlists follow the tags automatically."""
+    S, SP = tables.DjmdSongMyTag, tables.DjmdSongPlaylist
+    pairs, lines, problems = [], [], []
+    with open_db() as db:
+        by_id = {p.ID: p for p in playlists(db)}
+        for r in replacements:
+            olds, _ = resolve_tracks(db, [r.old_track_id], None)
+            news, _ = resolve_tracks(db, [r.new_track_id] if r.new_track_id else None,
+                                     [r.new_tidal_id] if r.new_tidal_id else None)
+            if not olds or len(news) != 1:
+                problems.append({"old": r.old_track_id, "new": r.new_track_id or f"tidal:{r.new_tidal_id}",
+                                 "error": "old or new track not found in the Collection"})
+                continue
+            o, n = olds[0], news[0]
+            if o.ID == n.ID:
+                problems.append({"old": o.ID, "error": "old and new are the same track"})
+                continue
+            tags = tags_for(db, [o.ID]).get(o.ID, [])
+            pls = [by_id[row.PlaylistID].Name for row in live(db.session.query(SP), SP).filter(SP.ContentID == o.ID)
+                   if row.PlaylistID in by_id]
+            pairs.append({"old": o.ID, "new": n.ID})
+            lines.append({"old": f"{o.Artist.Name if o.Artist else '?'} - {o.Title}",
+                          "new": f"{n.Artist.Name if n.Artist else '?'} - {n.Title}",
+                          "tags": tags, "playlists": pls})
+    if not pairs:
+        raise ValueError(f"Nothing to replace: {problems}")
+    details: dict = {"replacements": lines}
+    if problems:
+        details["skipped"] = problems
+    return stage("replace_tracks", f"Replace {len(pairs)} tracks (tags and playlist places move to the new version"
+                 + ("; old versions keep their tags" if keep_old_tags else "") + ")",
+                 {"pairs": pairs, "keep_old_tags": keep_old_tags}, details)
 
 
 # --------------------------------------------------------------------------- commit
