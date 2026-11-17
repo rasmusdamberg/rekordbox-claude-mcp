@@ -31,6 +31,10 @@ from pathlib import Path
 from typing import Any, Iterator, Literal, Optional
 
 from mcp.server.fastmcp import FastMCP
+from mcp.types import ToolAnnotations
+
+# Reads and previews never touch the Rekordbox library; only rb_commit writes.
+READ_ONLY = ToolAnnotations(readOnlyHint=True)
 from pyrekordbox import Rekordbox6Database
 from pyrekordbox.db6 import tables
 from pyrekordbox.utils import get_rekordbox_pid
@@ -560,7 +564,7 @@ def apply(db: Rekordbox6Database, kind: str, p: dict, xml_ops: list) -> str:
 # --------------------------------------------------------------------------- read tools
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY)
 def rb_status() -> dict:
     """Status: database path, whether Rekordbox is running, whether writes are enabled, track/playlist counts and pending actions."""
     with open_db() as db:
@@ -577,7 +581,7 @@ def rb_status() -> dict:
         }
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY)
 def rb_list_playlists(folder: Optional[str] = None) -> str:
     """Show the playlist tree (folders, playlists, smart playlists) with ids and track counts. Optionally only below one folder."""
     with open_db() as db:
@@ -607,7 +611,7 @@ def rb_list_playlists(folder: Optional[str] = None) -> str:
         return "\n".join(lines) or "(tom)"
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY)
 def rb_get_playlist_tracks(playlist: str, limit: int = 500) -> dict:
     """Tracks in a playlist (id, full path 'Folder/Playlist' or unique name). Smart playlists return their conditions."""
     with open_db() as db:
@@ -622,7 +626,7 @@ def rb_get_playlist_tracks(playlist: str, limit: int = 500) -> dict:
         return {"playlist": pl.Name, "id": pl.ID, "count": len(tracks), "tracks": tracks}
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY)
 def rb_search_tracks(
     query: Optional[str] = None,
     bpm_min: Optional[float] = None,
@@ -673,7 +677,7 @@ def rb_search_tracks(
         return {"total": total, "returned": len(rows), "tracks": [track_dict(r, tags.get(r.ID, [])) for r in rows]}
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY)
 def rb_tracks_by_tidal_ids(tidal_ids: list[str]) -> dict:
     """Look up Tidal track ids in the Rekordbox Collection. Returns the Rekordbox tracks and which Tidal ids are missing."""
     with open_db() as db:
@@ -682,7 +686,7 @@ def rb_tracks_by_tidal_ids(tidal_ids: list[str]) -> dict:
         return {"found": len(tracks), "missing": missing, "tracks": [track_dict(t, tags.get(t.ID, [])) for t in tracks]}
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY)
 def rb_list_mytags() -> dict:
     """All MyTag columns and tags with the number of tracks per tag."""
     with open_db() as db:
@@ -698,7 +702,7 @@ def rb_list_mytags() -> dict:
 # --------------------------------------------------------------------------- preview tools
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY)
 def rb_preview_create_folder(name: str, parent: Optional[str] = None) -> dict:
     """Preview: create a playlist folder (parent = folder path/id, empty = top level)."""
     with open_db() as db:
@@ -706,7 +710,7 @@ def rb_preview_create_folder(name: str, parent: Optional[str] = None) -> dict:
     return stage("create_folder", f"Create folder '{name}' in {parent or 'top level'}", {"name": name, "parent": parent})
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY)
 def rb_preview_create_playlist(name: str, parent: Optional[str] = None, track_ids: Optional[list[str]] = None,
                                tidal_ids: Optional[list[str]] = None) -> dict:
     """Preview: create a regular playlist, optionally with tracks (Rekordbox ids and/or Tidal ids)."""
@@ -718,7 +722,7 @@ def rb_preview_create_playlist(name: str, parent: Optional[str] = None, track_id
                  {"missing": missing} if missing else None)
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY)
 def rb_preview_create_smart_playlist(name: str, conditions: list[SmartCondition], match: Literal["all", "any"] = "all",
                                      parent: Optional[str] = None) -> dict:
     """Preview: create a smart playlist. match='all' (every condition) or 'any' (at least one).
@@ -735,7 +739,7 @@ def rb_preview_create_smart_playlist(name: str, conditions: list[SmartCondition]
                  {"name": name, "parent": parent, "match": match, "conditions": [c.model_dump() for c in conditions]}, details)
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY)
 def rb_preview_add_tracks(playlist: str, track_ids: Optional[list[str]] = None, tidal_ids: Optional[list[str]] = None) -> dict:
     """Preview: add tracks to an existing playlist. Duplicates are skipped."""
     with open_db() as db:
@@ -750,7 +754,7 @@ def rb_preview_add_tracks(playlist: str, track_ids: Optional[list[str]] = None, 
                  {"playlist": pl.ID, "content_ids": [t.ID for t in new]}, {"missing": missing} if missing else None)
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY)
 def rb_preview_remove_tracks(playlist: str, track_ids: Optional[list[str]] = None, tidal_ids: Optional[list[str]] = None) -> dict:
     """Preview: remove tracks from a playlist (they stay in the Collection)."""
     with open_db() as db:
@@ -760,7 +764,7 @@ def rb_preview_remove_tracks(playlist: str, track_ids: Optional[list[str]] = Non
                  {"playlist": pl.ID, "content_ids": [t.ID for t in tracks]}, {"missing": missing} if missing else None)
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY)
 def rb_preview_edit_playlist(playlist: str, new_name: Optional[str] = None, new_parent: Optional[str] = None) -> dict:
     """Preview: rename and/or move a playlist or folder. new_parent='root' moves it to the top level."""
     if not new_name and new_parent is None:
@@ -773,7 +777,7 @@ def rb_preview_edit_playlist(playlist: str, new_name: Optional[str] = None, new_
     return stage("edit_playlist", f"'{pl.Name}': " + ", ".join(bits), {"playlist": pl.ID, "new_name": new_name, "new_parent": new_parent})
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY)
 def rb_preview_create_mytag(column: str, name: str) -> dict:
     """Preview: create a new MyTag in an existing column (e.g. column='Energy', name='Opener')."""
     with open_db() as db:
@@ -784,7 +788,7 @@ def rb_preview_create_mytag(column: str, name: str) -> dict:
     return stage("create_mytag", f"Create MyTag {col.Name}/{name}", {"column": col.ID, "name": name})
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY)
 def rb_preview_rename_mytag(target: str, new_name: str, is_column: bool = False) -> dict:
     """Preview: rename a MyTag ('Column/Tag') or a column (is_column=True, e.g. 'Untitled Column')."""
     with open_db() as db:
@@ -793,7 +797,7 @@ def rb_preview_rename_mytag(target: str, new_name: str, is_column: bool = False)
                  {"target": t.ID, "is_column": is_column, "new_name": new_name})
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY)
 def rb_preview_tag_tracks(tag: str, track_ids: Optional[list[str]] = None, tidal_ids: Optional[list[str]] = None) -> dict:
     """Preview: add a MyTag ('Column/Tag') to tracks. Tracks that already have it are skipped."""
     with open_db() as db:
@@ -807,7 +811,7 @@ def rb_preview_tag_tracks(tag: str, track_ids: Optional[list[str]] = None, tidal
                  {"tag": t.ID, "content_ids": [x.ID for x in new]}, {"missing": missing} if missing else None)
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY)
 def rb_preview_untag_tracks(tag: str, track_ids: Optional[list[str]] = None, tidal_ids: Optional[list[str]] = None) -> dict:
     """Preview: remove a MyTag from tracks."""
     with open_db() as db:
@@ -821,7 +825,7 @@ def rb_preview_untag_tracks(tag: str, track_ids: Optional[list[str]] = None, tid
 # --------------------------------------------------------------------------- commit
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY)
 def rb_discard(action_ids: Optional[list[str]] = None) -> str:
     """Discard pending actions (all of them if action_ids is empty)."""
     ids = action_ids or list(PENDING)
