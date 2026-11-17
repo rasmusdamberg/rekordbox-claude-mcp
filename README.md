@@ -91,6 +91,10 @@ Smart playlist fields: `mytag`, `bpm`, `genre`, `artist`, `title`, `year`, `date
 
 Batch related changes into one commit so you only have to quit Rekordbox once. Note that a preview cannot point at a folder created in the same batch: create the folder first, then its contents.
 
+### Agent skill
+
+[`skills/rekordbox-library/SKILL.md`](skills/rekordbox-library/SKILL.md) tells an agent how to use these tools well: preview and commit rules, a tag/smart-playlist structure that scales, the Tidal import and sync workflow, and how to find and swap wrong track versions. Copy the folder into your agent's skills directory (for Claude Code: `~/.claude/skills/`).
+
 **Try it on something harmless first**, e.g. one smart playlist on the top level, and check it in Rekordbox before doing bulk tagging.
 
 ## Restoring a backup
